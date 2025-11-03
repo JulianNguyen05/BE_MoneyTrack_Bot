@@ -111,6 +111,9 @@ class TransactionViewSet(BaseViewSet):
         new_transaction = serializer.save()
         new_wallet = new_transaction.wallet
 
+        if old_wallet.id == new_wallet.id:
+            new_wallet.refresh_from_db()
+
         if new_transaction.category.type == 'income':
             new_wallet.balance += new_transaction.amount
         else:
