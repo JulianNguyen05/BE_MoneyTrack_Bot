@@ -131,3 +131,4 @@ class TransactionViewSet(BaseViewSet):
         wallet.save()
 
         instance.delete()
+ 
