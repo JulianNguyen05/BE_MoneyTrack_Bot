@@ -3,6 +3,9 @@ from rest_framework import serializers
 from .models import Category, Wallet, Transaction
 
 
+# ==========================================================
+# 👤 User Serializer
+# ==========================================================
 class UserSerializer(serializers.ModelSerializer):
     """
     Serializer cho đăng ký tài khoản người dùng mới.
@@ -23,6 +26,9 @@ class UserSerializer(serializers.ModelSerializer):
         )
 
 
+# ==========================================================
+# 🗂 Category Serializer
+# ==========================================================
 class CategorySerializer(serializers.ModelSerializer):
     """
     Serializer cho danh mục giao dịch (thu/chi).
@@ -35,6 +41,9 @@ class CategorySerializer(serializers.ModelSerializer):
         read_only_fields = ('user',)
 
 
+# ==========================================================
+# 💰 Wallet Serializer
+# ==========================================================
 class WalletSerializer(serializers.ModelSerializer):
     """
     Serializer cho ví tiền của người dùng.
@@ -53,6 +62,9 @@ class WalletSerializer(serializers.ModelSerializer):
         return f"{obj.balance:,.0f}đ"
 
 
+# ==========================================================
+# 📊 Transaction Serializer
+# ==========================================================
 class TransactionSerializer(serializers.ModelSerializer):
     """
     Serializer cho giao dịch thu/chi.
@@ -60,9 +72,24 @@ class TransactionSerializer(serializers.ModelSerializer):
     """
     category_name = serializers.CharField(source='category.name', read_only=True)
     wallet_name = serializers.CharField(source='wallet.name', read_only=True)
-    category_type = serializers.CharField(source='category.type', read_only=True)
+    category_type = serializers.CharField(source='category.get_type_display', read_only=True)
 
     class Meta:
         model = Transaction
         fields = '__all__'
         read_only_fields = ('user',)
+
+
+# ==========================================================
+# 🔄 Transfer Serializer (Không dùng Model)
+# ==========================================================
+class TransferSerializer(serializers.Serializer):
+    """
+    Serializer không liên kết với model.
+    Dùng để xác thực dữ liệu đầu vào cho API chuyển tiền giữa các ví.
+    """
+    amount = serializers.DecimalField(max_digits=15, decimal_places=2)
+    from_wallet_id = serializers.IntegerField()
+    to_wallet_id = serializers.IntegerField()
+    date = serializers.DateField()
+    description = serializers.CharField(required=False, allow_blank=True, max_length=200)
