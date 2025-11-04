@@ -28,4 +28,7 @@ urlpatterns = [
 
     # --- 💸 API chuyển tiền giữa ví ---
     path('transfer/', views.TransferView.as_view(), name='transfer'),
+
+    # --- 📊 Báo cáo tổng hợp giao dịch ---
+    path('reports/summary/', views.ReportView.as_view(), name='report-summary'),
 ]

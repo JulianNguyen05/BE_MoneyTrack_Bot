@@ -1,5 +1,8 @@
+from datetime import timedelta
 from django.contrib.auth.models import User
 from django.db import transaction
+from django.db.models import Sum
+from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -13,14 +16,12 @@ from .serializers import (
     TransferSerializer,
 )
 
+
 # ==========================================================
 # 🔐 Đăng ký người dùng (Public)
 # ==========================================================
 class UserCreateView(viewsets.ModelViewSet):
-    """
-    Cho phép người dùng mới đăng ký tài khoản.
-    Không yêu cầu đăng nhập.
-    """
+    """Cho phép người dùng mới đăng ký tài khoản (không cần đăng nhập)."""
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [permissions.AllowAny]
@@ -42,10 +43,7 @@ class UserCreateView(viewsets.ModelViewSet):
 # ⚙️ Base ViewSet chung cho model có trường user
 # ==========================================================
 class BaseViewSet(viewsets.ModelViewSet):
-    """
-    Tự động lọc dữ liệu theo user đăng nhập.
-    Gán user đó khi tạo mới bản ghi.
-    """
+    """Tự động lọc theo user đăng nhập và gán user khi tạo mới."""
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
@@ -83,20 +81,20 @@ class TransactionViewSet(BaseViewSet):
     queryset = Transaction.objects.all().order_by('-date')
     serializer_class = TransactionSerializer
 
-    # --- 🟢 Khi tạo giao dịch ---
     def perform_create(self, serializer):
+        """Tạo giao dịch mới và cập nhật số dư ví."""
         transaction_obj = serializer.save(user=self.request.user)
         wallet = transaction_obj.wallet
 
         if transaction_obj.category.type == 'income':
             wallet.balance += transaction_obj.amount
-        else:  # expense
+        else:
             wallet.balance -= transaction_obj.amount
 
         wallet.save(update_fields=['balance'])
 
-    # --- 🟠 Khi cập nhật giao dịch ---
     def perform_update(self, serializer):
+        """Cập nhật giao dịch và điều chỉnh số dư ví."""
         old_transaction = self.get_object()
         old_wallet = old_transaction.wallet
         old_amount = old_transaction.amount
@@ -113,19 +111,19 @@ class TransactionViewSet(BaseViewSet):
         new_transaction = serializer.save()
         new_wallet = new_transaction.wallet
 
-        # Nếu đổi ví, refresh lại ví mới
+        # 3️⃣ Nếu đổi ví, đảm bảo ví mới được cập nhật chính xác
         if old_wallet.id != new_wallet.id:
             new_wallet.refresh_from_db()
 
-        # 3️⃣ Cập nhật số dư ví mới
+        # 4️⃣ Cập nhật số dư ví mới
         if new_transaction.category.type == 'income':
             new_wallet.balance += new_transaction.amount
         else:
             new_wallet.balance -= new_transaction.amount
         new_wallet.save(update_fields=['balance'])
 
-    # --- 🔴 Khi xóa giao dịch ---
     def perform_destroy(self, instance):
+        """Xóa giao dịch và hoàn tác số dư ví."""
         wallet = instance.wallet
 
         if instance.category.type == 'income':
@@ -138,31 +136,28 @@ class TransactionViewSet(BaseViewSet):
 
 
 # ==========================================================
-# 🏦 API Chuyển tiền giữa 2 ví
+# 🏦 API: Chuyển tiền giữa 2 ví
 # ==========================================================
 class TransferView(APIView):
-    """
-    API đặc biệt để chuyển tiền giữa 2 ví.
-    """
+    """API chuyển tiền giữa 2 ví của cùng 1 user."""
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
         serializer = TransferSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
+        serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+
         user = request.user
         amount = data['amount']
         date = data['date']
         description = data.get('description', 'Chuyển tiền')
 
         try:
-            # 1️⃣ Lấy ví nguồn và ví đích
+            # 1️⃣ Lấy ví nguồn & đích
             from_wallet = Wallet.objects.get(id=data['from_wallet_id'], user=user)
             to_wallet = Wallet.objects.get(id=data['to_wallet_id'], user=user)
 
-            if from_wallet.id == to_wallet.id:
+            if from_wallet == to_wallet:
                 return Response(
                     {"error": "Ví nguồn và ví đích không được trùng nhau."},
                     status=status.HTTP_400_BAD_REQUEST
@@ -174,7 +169,7 @@ class TransferView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            # 2️⃣ Lấy hoặc tạo danh mục chuyển tiền
+            # 2️⃣ Danh mục mặc định
             expense_category, _ = Category.objects.get_or_create(
                 user=user,
                 name="Chuyển tiền đi",
@@ -186,17 +181,14 @@ class TransferView(APIView):
                 defaults={'type': 'income'}
             )
 
-            # 3️⃣ Giao dịch an toàn — tất cả hoặc không gì cả
+            # 3️⃣ Giao dịch an toàn
             with transaction.atomic():
-                # Trừ ví nguồn
                 from_wallet.balance -= amount
                 from_wallet.save(update_fields=['balance'])
 
-                # Cộng ví đích
                 to_wallet.balance += amount
                 to_wallet.save(update_fields=['balance'])
 
-                # Tạo 2 bản ghi giao dịch
                 Transaction.objects.create(
                     user=user,
                     wallet=from_wallet,
@@ -220,3 +212,38 @@ class TransferView(APIView):
             return Response({"error": "Không tìm thấy ví."}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ==========================================================
+# 📊 API Báo cáo chi tiêu theo danh mục
+# ==========================================================
+class ReportView(APIView):
+    """Tổng hợp chi tiêu theo danh mục trong khoảng thời gian."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        user = request.user
+
+        # 1️⃣ Khoảng thời gian mặc định: 30 ngày qua
+        end_date = timezone.now().date()
+        start_date = end_date - timedelta(days=30)
+
+        # 2️⃣ Cho phép truyền query params
+        if request.query_params.get('start_date'):
+            start_date = request.query_params.get('start_date')
+        if request.query_params.get('end_date'):
+            end_date = request.query_params.get('end_date')
+
+        # 3️⃣ Tổng hợp chi tiêu theo danh mục
+        expenses = (
+            Transaction.objects.filter(
+                user=user,
+                category__type='expense',
+                date__range=[start_date, end_date]
+            )
+            .values('category__name')
+            .annotate(total_amount=Sum('amount'))
+            .order_by('-total_amount')
+        )
+
+        return Response(expenses, status=status.HTTP_200_OK)
