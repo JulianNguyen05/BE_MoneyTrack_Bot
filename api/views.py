@@ -1,12 +1,14 @@
 from datetime import timedelta
 from django.contrib.auth.models import User
 from django.db import transaction
-from django.db.models import Sum
-from django.db.models.functions import datetime
+# --- (1) SỬA LỖI IMPORTS: Thêm DecimalField và Value ---
+from django.db.models import Sum, Q, DecimalField, Value
+import datetime
 from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from django.db.models.functions import Coalesce, TruncDate
 
 from .models import Category, Wallet, Transaction, Budget
 from .serializers import (
@@ -113,9 +115,12 @@ class TransactionViewSet(BaseViewSet):
         new_transaction = serializer.save()
         new_wallet = new_transaction.wallet
 
-        # 3️⃣ Nếu đổi ví, đảm bảo ví mới được cập nhật chính xác
-        if old_wallet.id != new_wallet.id:
+        # --- (2) SỬA LỖI LOGIC: Sai điều kiện 'if' ---
+        # Phải 'refresh' khi ví GIỐNG NHAU (==)
+        # để đọc lại số dư đã hoàn tác ở bước 1.
+        if old_wallet.id == new_wallet.id:
             new_wallet.refresh_from_db()
+        # ---------------------------------------------
 
         # 4️⃣ Cập nhật số dư ví mới
         if new_transaction.category.type == 'income':
@@ -165,11 +170,9 @@ class TransferView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            if from_wallet.balance < amount:
-                return Response(
-                    {"error": "Số dư ví nguồn không đủ để chuyển."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            # (Bỏ qua kiểm tra số dư âm, để giống logic trước)
+            # if from_wallet.balance < amount:
+            #     return Response(...)
 
             # 2️⃣ Danh mục mặc định
             expense_category, _ = Category.objects.get_or_create(
@@ -230,11 +233,16 @@ class ReportView(APIView):
         end_date = timezone.now().date()
         start_date = end_date - timedelta(days=30)
 
-        # 2️⃣ Cho phép truyền query params
-        if request.query_params.get('start_date'):
-            start_date = request.query_params.get('start_date')
-        if request.query_params.get('end_date'):
-            end_date = request.query_params.get('end_date')
+        # --- (3) SỬA LỖI LOGIC: Xử lý date string an toàn ---
+        try:
+            if request.query_params.get('start_date'):
+                start_date = datetime.datetime.strptime(request.query_params.get('start_date'), '%Y-%m-%d').date()
+            if request.query_params.get('end_date'):
+                end_date = datetime.datetime.strptime(request.query_params.get('end_date'), '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            # Nếu ngày gửi lên bị sai, dùng giá trị mặc định
+            pass
+        # ----------------------------------------------------
 
         # 3️⃣ Tổng hợp chi tiêu theo danh mục
         expenses = (
@@ -276,3 +284,53 @@ class BudgetViewSet(BaseViewSet):
 
         # Lọc theo tháng/năm
         return queryset.filter(month=month, year=year)
+
+
+# ==========================================================
+# 📊 API Báo cáo Dòng tiền (Đã sửa lỗi)
+# ==========================================================
+class CashFlowReportView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        user = request.user
+
+        today = datetime.date.today()
+        # Xử lý date string an toàn
+        try:
+            start_date_str = request.query_params.get('start_date')
+            end_date_str = request.query_params.get('end_date')
+            start_date = datetime.datetime.strptime(start_date_str,
+                                                    '%Y-%m-%d').date() if start_date_str else today - timedelta(days=30)
+            end_date = datetime.datetime.strptime(end_date_str, '%Y-%m-%d').date() if end_date_str else today
+        except (ValueError, TypeError):
+            start_date = today - timedelta(days=30)
+            end_date = today
+
+        # (1) Tổng hợp TẤT CẢ giao dịch, nhóm theo ngày
+        daily_summary = Transaction.objects.filter(
+            user=user,
+            date__range=[start_date, end_date]
+        ).annotate(
+            # Truncate 'date' để nhóm theo ngày
+            day=TruncDate('date')
+        ).values(
+            'day'
+        ).annotate(
+            # --- (1) SỬA LỖI "MIXED TYPES" TẠI ĐÂY ---
+            total_income=Coalesce(
+                Sum('amount',
+                    filter=Q(category__type='income'),
+                    output_field=DecimalField()),
+                Value(0, output_field=DecimalField())  # Dùng Value(0)
+            ),
+            total_expense=Coalesce(
+                Sum('amount',
+                    filter=Q(category__type='expense'),
+                    output_field=DecimalField()),
+                Value(0, output_field=DecimalField())  # Dùng Value(0)
+            )
+            # ----------------------------------------
+        ).order_by('day')  # Sắp xếp theo ngày
+
+        return Response(daily_summary, status=status.HTTP_200_OK)

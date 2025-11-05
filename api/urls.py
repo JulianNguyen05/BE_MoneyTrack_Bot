@@ -32,4 +32,6 @@ urlpatterns = [
 
     # --- 📊 Báo cáo tổng hợp giao dịch ---
     path('reports/summary/', views.ReportView.as_view(), name='report-summary'),
+
+    path('reports/cashflow/', views.CashFlowReportView.as_view(), name='report-cashflow'),
 ]
