@@ -177,4 +177,4 @@ SIMPLE_JWT = {
 # 🤖 GEMINI API KEY (TÙY CHỌN)
 # ======================================================================
 
-GEMINI_API_KEY = ""
+GEMINI_API_KEY = "AIzaSyBnbrgg4z6gUH6-ALdYivejIF_GHI6Ksqg"
