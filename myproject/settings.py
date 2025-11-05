@@ -69,8 +69,8 @@ MIDDLEWARE = [
 # 🚀 URL & WSGI
 # ======================================================================
 
-ROOT_URLCONF = "myproject.urls"
-WSGI_APPLICATION = "myproject.wsgi.application"
+ROOT_URLCONF = "BE_MoneyTrack_Bot.urls"
+WSGI_APPLICATION = "BE_MoneyTrack_Bot.wsgi.application"
 
 
 # ======================================================================
@@ -177,4 +177,4 @@ SIMPLE_JWT = {
 # 🤖 GEMINI API KEY (TÙY CHỌN)
 # ======================================================================
 
-GEMINI_API_KEY = "AIzaSyBnbrgg4z6gUH6-ALdYivejIF_GHI6Ksqg"
+GEMINI_API_KEY = ""
