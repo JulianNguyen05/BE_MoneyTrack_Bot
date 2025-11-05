@@ -7,3 +7,4 @@ from .transfer_view import TransferView
 from .report_view import ReportView
 from .budget_view import BudgetViewSet
 from .cashflow_view import CashFlowReportView
+from .chatbot import ChatbotView

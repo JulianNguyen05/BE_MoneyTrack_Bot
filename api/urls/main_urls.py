@@ -9,6 +9,7 @@ from ..views import (
     budget_view,
     transfer_view,
     report_view,
+    ChatbotView,
 )
 
 router = DefaultRouter()
@@ -27,4 +28,5 @@ urlpatterns = [
     path('transfer/', transfer_view.TransferView.as_view(), name='transfer'),
     path('reports/summary/', report_view.ReportView.as_view(), name='report-summary'),
     path('reports/cashflow/', report_view.CashFlowReportView.as_view(), name='report-cashflow'),
+    path('chatbot/', ChatbotView.as_view(), name='chatbot'),
 ]

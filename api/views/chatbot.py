@@ -18,7 +18,7 @@ from ..models.transaction import Transaction
 # --- (C) CẤU HÌNH API KEY ---
 try:
     genai.configure(api_key=settings.GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash')  # Dùng mô hình Flash cho tốc độ
+    model = genai.GenerativeModel('models/gemini-2.5-flash')  # Dùng mô hình Flash cho tốc độ
     print("✅ (Chatbot) Kết nối Google Gemini API thành công!")
 except Exception as e:
     print(f"❌ (Chatbot) Lỗi: Không thể kết nối Gemini API. Kiểm tra API Key. Lỗi: {e}")
