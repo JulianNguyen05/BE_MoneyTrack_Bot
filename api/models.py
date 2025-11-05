@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+import datetime
 
 
 # ==========================================================
@@ -104,3 +105,23 @@ class Transaction(models.Model):
         else:
             self.wallet.balance += self.amount
         self.wallet.save()
+
+
+# ==========================================================
+# 📈 MODEL: Budget (Mới)
+# ==========================================================
+class Budget(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='budgets')
+    category = models.ForeignKey(Category, on_delete=models.CASCADE)
+    amount = models.DecimalField(max_digits=15, decimal_places=2)  # Hạn mức
+
+    # Chúng ta sẽ lưu ngân sách theo tháng/năm
+    month = models.IntegerField(default=datetime.date.today().month)
+    year = models.IntegerField(default=datetime.date.today().year)
+
+    class Meta:
+        # Đảm bảo mỗi user chỉ có 1 ngân sách cho 1 danh mục/tháng/năm
+        unique_together = ('user', 'category', 'month', 'year')
+
+    def __str__(self):
+        return f"{self.category.name} - {self.month}/{self.year}: {self.amount}"

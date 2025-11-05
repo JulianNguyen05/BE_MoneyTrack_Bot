@@ -1,6 +1,6 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
-from .models import Category, Wallet, Transaction
+from .models import Category, Wallet, Transaction, Budget
 
 
 # ==========================================================
@@ -93,3 +93,18 @@ class TransferSerializer(serializers.Serializer):
     to_wallet_id = serializers.IntegerField()
     date = serializers.DateField()
     description = serializers.CharField(required=False, allow_blank=True, max_length=200)
+
+# ==========================================================
+# 📈 SERIALIZER: Budget (Mới)
+# ==========================================================
+class BudgetSerializer(serializers.ModelSerializer):
+    # Dùng 'read_only=True' để khi GET, nó hiển thị chi tiết category
+    # Khi POST (tạo), chúng ta chỉ cần gửi 'category' (là ID)
+    category_details = CategorySerializer(source='category', read_only=True)
+
+    class Meta:
+        model = Budget
+        # Bao gồm tất cả các trường
+        fields = ('id', 'category', 'amount', 'month', 'year', 'category_details')
+        # Khi 'Tạo' (POST), chúng ta chỉ nhận các trường này
+        read_only_fields = ('user', 'category_details')

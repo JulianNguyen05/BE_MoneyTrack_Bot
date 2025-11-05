@@ -13,6 +13,7 @@ router.register(r'users', views.UserCreateView, basename='user')          # POST
 router.register(r'categories', views.CategoryViewSet, basename='category')
 router.register(r'wallets', views.WalletViewSet, basename='wallet')
 router.register(r'transactions', views.TransactionViewSet, basename='transaction')
+router.register(r'budgets', views.BudgetViewSet, basename='budget')
 
 
 # ==========================================================

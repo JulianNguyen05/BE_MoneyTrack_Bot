@@ -2,18 +2,20 @@ from datetime import timedelta
 from django.contrib.auth.models import User
 from django.db import transaction
 from django.db.models import Sum
+from django.db.models.functions import datetime
 from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
-from .models import Category, Wallet, Transaction
+from .models import Category, Wallet, Transaction, Budget
 from .serializers import (
     CategorySerializer,
     WalletSerializer,
     TransactionSerializer,
     UserSerializer,
     TransferSerializer,
+    BudgetSerializer,
 )
 
 
@@ -247,3 +249,30 @@ class ReportView(APIView):
         )
 
         return Response(expenses, status=status.HTTP_200_OK)
+
+
+# ==========================================================
+# 📈 CRUD: Budget (Mới)
+# ==========================================================
+class BudgetViewSet(BaseViewSet):
+    """
+    CRUD cho Ngân sách (Budgets).
+    Tự động lọc theo user.
+    """
+    queryset = Budget.objects.all().order_by('category__name')
+    serializer_class = BudgetSerializer
+
+    def get_queryset(self):
+        """
+        Ghi đè (override) để lọc thêm theo tháng/năm.
+        Lấy tháng/năm hiện tại làm mặc định.
+        """
+        queryset = super().get_queryset()  # Lọc user trước
+
+        # Lấy tháng/năm từ query params, nếu không có thì dùng tháng/năm hiện tại
+        today = datetime.date.today()
+        month = self.request.query_params.get('month', today.month)
+        year = self.request.query_params.get('year', today.year)
+
+        # Lọc theo tháng/năm
+        return queryset.filter(month=month, year=year)
