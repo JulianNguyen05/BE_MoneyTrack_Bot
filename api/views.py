@@ -294,9 +294,9 @@ class CashFlowReportView(APIView):
 
     def get(self, request, *args, **kwargs):
         user = request.user
-
         today = datetime.date.today()
-        # Xử lý date string an toàn
+
+        # Xử lý ngày tháng an toàn (giữ nguyên)
         try:
             start_date_str = request.query_params.get('start_date')
             end_date_str = request.query_params.get('end_date')
@@ -307,30 +307,38 @@ class CashFlowReportView(APIView):
             start_date = today - timedelta(days=30)
             end_date = today
 
-        # (1) Tổng hợp TẤT CẢ giao dịch, nhóm theo ngày
-        daily_summary = Transaction.objects.filter(
+        # (1) Tổng hợp giao dịch, nhóm theo 'date' (thay vì TruncDate)
+        daily_summary_query = Transaction.objects.filter(
             user=user,
             date__range=[start_date, end_date]
-        ).annotate(
-            # Truncate 'date' để nhóm theo ngày
-            day=TruncDate('date')
         ).values(
-            'day'
+            'date'  # <-- (A) SỬA Ở ĐÂY: Group by 'date' (đã là date rồi)
         ).annotate(
-            # --- (1) SỬA LỖI "MIXED TYPES" TẠI ĐÂY ---
+            # Tính tổng 'income' và 'expense' (giữ nguyên)
             total_income=Coalesce(
                 Sum('amount',
                     filter=Q(category__type='income'),
                     output_field=DecimalField()),
-                Value(0, output_field=DecimalField())  # Dùng Value(0)
+                Value(0, output_field=DecimalField())
             ),
             total_expense=Coalesce(
                 Sum('amount',
                     filter=Q(category__type='expense'),
                     output_field=DecimalField()),
-                Value(0, output_field=DecimalField())  # Dùng Value(0)
+                Value(0, output_field=DecimalField())
             )
-            # ----------------------------------------
-        ).order_by('day')  # Sắp xếp theo ngày
+        ).order_by('date')  # Sắp xếp theo 'date'
 
-        return Response(daily_summary, status=status.HTTP_200_OK)
+        # (2) Đổi tên 'date' thành 'day' để khớp với Android
+        # Kết quả query là: [{'date': ..., 'total_income': ...}, ...]
+        # Android cần:     [{'day': ..., 'total_income': ...}, ...]
+        daily_summary_data = [
+            {
+                'day': item['date'],  # <-- (B) SỬA Ở ĐÂY: Đổi tên key
+                'total_income': item['total_income'],
+                'total_expense': item['total_expense']
+            }
+            for item in daily_summary_query
+        ]
+
+        return Response(daily_summary_data, status=status.HTTP_200_OK)
