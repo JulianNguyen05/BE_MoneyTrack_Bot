@@ -1,6 +1,3 @@
-# Mở file: api/views/chatbot.py
-
-# --- (A) IMPORT CÁC THƯ VIỆN CẦN THIẾT ---
 import datetime
 import json
 from decimal import Decimal
@@ -15,13 +12,9 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions, status
 
-# (B) IMPORT TỪ CÁC GÓI CỦA BẠN
-try:
-    from ..models import Transaction, Wallet, Category
-except ImportError:
-    from ..models.core import Wallet, Category
-    from ..models.transactions import Transaction
-
+from ..models.wallet import Wallet
+from ..models.category import Category
+from ..models.transaction import Transaction
 # --- (C) CẤU HÌNH API KEY ---
 try:
     genai.configure(api_key=settings.GEMINI_API_KEY)
