@@ -9,6 +9,8 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.db.models.functions import Coalesce, TruncDate
+from rest_framework import filters
+from django_filters import rest_framework as django_filters
 
 from .models import Category, Wallet, Transaction, Budget
 from .serializers import (
@@ -342,3 +344,24 @@ class CashFlowReportView(APIView):
         ]
 
         return Response(daily_summary_data, status=status.HTTP_200_OK)
+
+# ==========================================================
+# 💸 CRUD: Transaction (Nâng cấp)
+# ==========================================================
+class TransactionViewSet(BaseViewSet):
+    """CRUD cho giao dịch VÀ HỖ TRỢ LỌC/TÌM KIẾM."""
+    queryset = Transaction.objects.all().order_by('-date')
+    serializer_class = TransactionSerializer
+
+    # --- (2) THÊM CÁC DÒNG NÀY VÀO ---
+    filter_backends = (
+        django_filters.DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter
+    )
+    # Lọc chính xác theo category_id hoặc wallet_id
+    filterset_fields = ['category', 'wallet']
+    # Tìm kiếm (không phân biệt hoa/thường) trong trường 'description'
+    search_fields = ['description']
+    # Sắp xếp
+    ordering_fields = ['date', 'amount']
