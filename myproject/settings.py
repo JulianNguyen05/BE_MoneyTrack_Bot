@@ -69,8 +69,8 @@ MIDDLEWARE = [
 # 🚀 URL & WSGI
 # ======================================================================
 
-ROOT_URLCONF = "BE_MoneyTrack_Bot.urls"
-WSGI_APPLICATION = "BE_MoneyTrack_Bot.wsgi.application"
+ROOT_URLCONF = "myproject.urls"
+WSGI_APPLICATION = "myproject.wsgi.application"
 
 
 # ======================================================================
