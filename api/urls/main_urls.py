@@ -14,7 +14,6 @@ from ..views import (
 )
 
 router = DefaultRouter()
-router.register(r'users', user_view.UserCreateView, basename='user')
 router.register(r'categories', category_view.CategoryViewSet, basename='category')
 router.register(r'wallets', wallet_view.WalletViewSet, basename='wallet')
 router.register(r'transactions', transaction_view.TransactionViewSet, basename='transaction')
@@ -22,6 +21,8 @@ router.register(r'budgets', budget_view.BudgetViewSet, basename='budget')
 
 urlpatterns = [
     path('', include(router.urls)),
+
+    path('register/', user_view.UserCreateView.as_view(), name='register'),
 
     path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),

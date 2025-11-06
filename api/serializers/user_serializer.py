@@ -4,19 +4,19 @@ from rest_framework import serializers
 
 class UserSerializer(serializers.ModelSerializer):
     """
-    Serializer cho đăng ký tài khoản người dùng mới.
+    Serializer để validate và tạo User mới, đảm bảo mã hóa mật khẩu.
     """
-    password = serializers.CharField(write_only=True, style={'input_type': 'password'})
+    email = serializers.EmailField(required=True)
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'password')
+        fields = ('id', 'username', 'email', 'password')
+        extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data):
-        """
-        Tạo user mới với mật khẩu được mã hóa.
-        """
-        return User.objects.create_user(
+        user = User.objects.create_user(
             username=validated_data['username'],
+            email=validated_data['email'],
             password=validated_data['password']
         )
+        return user
