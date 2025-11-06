@@ -9,7 +9,7 @@ import google.generativeai as genai
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Sum
-from django.utils import timezone  # ✅ thêm để xử lý ngày giờ
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions, status
@@ -18,7 +18,6 @@ from rest_framework import permissions, status
 from ..models.wallet import Wallet
 from ..models.category import Category
 from ..models.transaction import Transaction
-
 
 # --- (C) CẤU HÌNH API KEY ---
 try:
@@ -79,7 +78,12 @@ class ChatbotView(APIView):
                 self.create_transaction_from_ai(user, data)
                 return Response({"reply": reply_message})
 
-            # --- (B) TRẢ LỜI CÂU HỎI ---
+            # --- (B) LỖI VALIDATION (PHẦN BỔ SUNG HOÀN THIỆN) ---
+            # Xử lý KỊCH BẢN 4: Không tạo giao dịch và báo lỗi cho người dùng.
+            elif action == "error_validation":
+                return Response({"reply": reply_message}, status=status.HTTP_400_BAD_REQUEST)
+
+            # --- (C) TRẢ LỜI CÂU HỎI ---
             elif action == "answer_question":
                 query_type = ai_data.get("query_type")
                 data = ai_data.get("data", {})
@@ -118,7 +122,7 @@ class ChatbotView(APIView):
                         total = Transaction.objects.filter(
                             user=user,
                             category__type='expense',
-                            date__year=now.year,
+                            date__year=now.year,  # (Giả định user hỏi năm hiện tại)
                             date__month=month
                         ).aggregate(total_sum=Sum('amount'))['total_sum'] or Decimal(0)
                         final_reply = f"Tổng chi tháng {month} của bạn là {total:,.0f}đ."
@@ -129,7 +133,7 @@ class ChatbotView(APIView):
 
                 return Response({"reply": final_reply})
 
-            # --- (C) KHÔNG HIỂU ---
+            # --- (D) KHÔNG HIỂU ---
             else:
                 return Response({"reply": ai_data.get("reply", "Xin lỗi, tôi chưa hiểu ý bạn.")})
 
@@ -211,6 +215,23 @@ class ChatbotView(APIView):
         }}
 
         ---
+        KỊCH BẢN 4: LỖI VALIDATION (RẤT QUAN TRỌNG)
+        Nếu user muốn TẠO GIAO DỊCH nhưng bạn KHÔNG tìm thấy 'wallet_id' hoặc 'category_id'
+        khớp với Kiến thức hiện tại → TUYỆT ĐỐI KHÔNG tạo giao dịch.
+
+        Ví dụ 1: User nói "ăn trưa 50k bằng ví 'thẻ'" (không có ví 'thẻ')
+        {{
+          "action": "error_validation",
+          "reply": "Xin lỗi, tôi không tìm thấy ví nào tên 'thẻ'. Vui lòng kiểm tra lại."
+        }}
+
+        Ví dụ 2: User nói "chi 100k cho 'xe cộ'" (không có danh mục 'xe cộ')
+        {{
+          "action": "error_validation",
+          "reply": "Xin lỗi, tôi không tìm thấy danh mục nào tên 'xe cộ'. Vui lòng kiểm tra lại."
+        }}
+
+        ---
         Bây giờ, xử lý tin nhắn người dùng:
         "{message}"
         """
@@ -244,3 +265,5 @@ class ChatbotView(APIView):
                 wallet.save(update_fields=['balance'])
         except Exception as e:
             print(f"Lỗi khi tạo Giao dịch từ AI: {e}")
+            # Bạn có thể ném lỗi (raise e) để chatbot báo lỗi ngược lại cho user
+            raise Exception(f"Lỗi server khi lưu giao dịch: {e}")
