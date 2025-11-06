@@ -5,16 +5,21 @@ from decimal import Decimal
 # Import thư viện Google AI
 import google.generativeai as genai
 
-from django.conf import settings  # (1) Import settings
+# --- Django imports ---
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Sum
+from django.utils import timezone  # ✅ thêm để xử lý ngày giờ
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions, status
 
+# --- Models ---
 from ..models.wallet import Wallet
 from ..models.category import Category
 from ..models.transaction import Transaction
+
+
 # --- (C) CẤU HÌNH API KEY ---
 try:
     genai.configure(api_key=settings.GEMINI_API_KEY)
@@ -47,7 +52,6 @@ class ChatbotView(APIView):
 
         try:
             # --- (1) Lấy "Kiến thức" (Context) của User ---
-            # Lấy danh sách Ví và Danh mục để "mớm" cho AI
             wallets = list(Wallet.objects.filter(user=user).values('id', 'name'))
             categories = list(Category.objects.filter(user=user).values('id', 'name', 'type'))
 
@@ -55,50 +59,92 @@ class ChatbotView(APIView):
             prompt = self.build_prompt(message, wallets, categories)
 
             # --- (3) Gọi API Google AI ---
-            # Yêu cầu AI trả lời bằng JSON
             generation_config = genai.types.GenerationConfig(
                 response_mime_type="application/json"
             )
             response = model.generate_content(prompt, generation_config=generation_config)
 
-            # (Debug: In ra câu trả lời thô từ AI)
             print("--- AI Raw Response ---")
             print(response.text)
             print("-----------------------")
 
-            # --- (4) Xử lý Câu trả lời JSON của AI ---
+            # --- (4) Xử lý JSON trả về ---
             ai_data = json.loads(response.text)
             action = ai_data.get("action")
             reply_message = ai_data.get("reply", "Tôi đã xử lý xong.")
 
-            # (A) Nếu AI nói "Tạo giao dịch"
+            # --- (A) TẠO GIAO DỊCH ---
             if action == "create_transaction":
                 data = ai_data.get("data")
-                # Tạo giao dịch (dùng hàm phụ)
                 self.create_transaction_from_ai(user, data)
                 return Response({"reply": reply_message})
 
-            # (B) Nếu AI nói "Trả lời câu hỏi" (ví dụ: hỏi số dư)
+            # --- (B) TRẢ LỜI CÂU HỎI ---
             elif action == "answer_question":
-                return Response({"reply": reply_message})
+                query_type = ai_data.get("query_type")
+                data = ai_data.get("data", {})
+                final_reply = ""
 
-            # (C) Nếu AI không hiểu
+                # --- 1. Tổng chi tháng này ---
+                if query_type == "total_expense_current_month":
+                    now = timezone.now()
+                    total = Transaction.objects.filter(
+                        user=user,
+                        category__type='expense',
+                        date__year=now.year,
+                        date__month=now.month
+                    ).aggregate(total_sum=Sum('amount'))['total_sum'] or Decimal(0)
+                    final_reply = f"Tổng chi tháng này của bạn là {total:,.0f}đ."
+
+                # --- 2. Số dư ví ---
+                elif query_type == "get_wallet_balance":
+                    wallet_id = data.get("wallet_id")
+                    if wallet_id is None:
+                        final_reply = "Xin lỗi, tôi không rõ bạn muốn hỏi số dư của ví nào."
+                    else:
+                        try:
+                            wallet = Wallet.objects.get(id=wallet_id, user=user)
+                            final_reply = f"Số dư trong ví '{wallet.name}' của bạn là {wallet.balance:,.0f}đ."
+                        except Wallet.DoesNotExist:
+                            final_reply = "Xin lỗi, tôi không tìm thấy ví đó trong tài khoản của bạn."
+
+                # --- 3. Tổng chi của tháng cụ thể ---
+                elif query_type == "total_expense_specific_month":
+                    month = data.get("month")
+                    if month is None:
+                        final_reply = "Bạn vui lòng nói rõ tháng nào nhé (ví dụ: 'tháng 10')."
+                    else:
+                        now = timezone.now()
+                        total = Transaction.objects.filter(
+                            user=user,
+                            category__type='expense',
+                            date__year=now.year,
+                            date__month=month
+                        ).aggregate(total_sum=Sum('amount'))['total_sum'] or Decimal(0)
+                        final_reply = f"Tổng chi tháng {month} của bạn là {total:,.0f}đ."
+
+                # --- Không biết xử lý ---
+                else:
+                    final_reply = "Tôi đã nhận được câu hỏi, nhưng hiện tại tôi chưa được lập trình để tính điều này."
+
+                return Response({"reply": final_reply})
+
+            # --- (C) KHÔNG HIỂU ---
             else:
                 return Response({"reply": ai_data.get("reply", "Xin lỗi, tôi chưa hiểu ý bạn.")})
 
         except Exception as e:
-            # (Debug: In lỗi nếu gọi API thất bại)
             print(f"--- AI API Error --- \n{e}\n------------------")
             return Response({"reply": f"Xin lỗi, Bot AI đang gặp lỗi: {str(e)}"})
 
-    # --- (Hàm phụ 1): Xây dựng câu lệnh (Prompt) ---
+    # ==========================================================
+    # 🧠 Hàm "Dạy" AI cách hiểu câu hỏi và yêu cầu JSON
+    # ==========================================================
     def build_prompt(self, message, wallets, categories):
-        # Chuyển danh sách (Python list) thành chuỗi (string)
         wallets_str = json.dumps(wallets)
         categories_str = json.dumps(categories)
         today_str = datetime.date.today().strftime('%Y-%m-%d')
 
-        # Đây là "bộ não" của bot. Chúng ta "dạy" AI cách hành xử.
         prompt = f"""
         Bạn là một trợ lý tài chính thông minh cho người dùng Việt Nam.
         Ngày hôm nay là: {today_str}.
@@ -107,58 +153,72 @@ class ChatbotView(APIView):
         1. Danh sách Ví của user: {wallets_str}
         2. Danh sách Danh mục của user: {categories_str}
 
-        Nhiệm vụ của bạn:
-        Đọc tin nhắn của user và phân tích xem họ muốn (1) Tạo giao dịch hay (2) Hỏi đáp.
-        Sau đó, trả lời BẮT BUỘC bằng định dạng JSON.
+        Nhiệm vụ:
+        Phân tích tin nhắn và phản hồi bằng JSON duy nhất.
 
         ---
-        KỊCH BẢN 1: TẠO GIAO DỊCH (Nếu user nhập số tiền)
+        KỊCH BẢN 1: TẠO GIAO DỊCH (Nếu có số tiền)
         Ví dụ user: "ăn trưa 50k bằng tiền mặt"
-        1. Phân tích:
-           - "50k" -> amount: 50000 (Luôn là số).
-           - "tiền mặt" -> tìm trong "Danh sách Ví" -> wallet_id: (id của ví 'tiền mặt').
-           - "ăn trưa" -> tìm trong "Danh sách Danh mục" -> category_id: (id của danh mục 'Ăn uống').
-           - "hôm qua" -> date: (ngày hôm qua, YYYY-MM-DD). Nếu không nói gì, dùng ngày hôm nay.
-           - "ăn trưa" -> description: "Ăn trưa".
-        2. Trả lời JSON:
-           {{
-             "action": "create_transaction",
-             "reply": "✅ Đã lưu: Ăn trưa (-50.000đ) vào 'Ăn uống' từ 'Tiền mặt' nhé!",
-             "data": {{
-               "amount": 50000,
-               "date": "2025-11-04",
-               "description": "Ăn trưa",
-               "wallet_id": (id của ví),
-               "category_id": (id của danh mục)
-             }}
-           }}
+        => Trả về JSON:
+        {{
+          "action": "create_transaction",
+          "reply": "✅ Đã lưu: Ăn trưa (-50.000đ) vào 'Ăn uống' từ 'Tiền mặt' nhé!",
+          "data": {{
+            "amount": 50000,
+            "date": "{today_str}",
+            "description": "Ăn trưa",
+            "wallet_id": (id ví),
+            "category_id": (id danh mục)
+          }}
+        }}
 
-        KỊCH BẢN 2: HỎI ĐÁP (Nếu user không nhập số tiền)
-        Ví dụ user: "tổng chi tháng này?"
-        1. Phân tích: User muốn biết tổng chi tiêu.
-        2. Trả lời JSON:
-           {{
-             "action": "answer_question",
-             "reply": "Bạn đợi chút, tôi đang tính tổng chi tháng này..."
-           }}
-        (Lưu ý: Bạn KHÔNG cần tự tính toán. Server sẽ tự tính sau. Chỉ cần nhận diện ý định.)
-
-        KỊCH BẢN 3: KHÔNG HIỂU
-        Ví dụ user: "con mèo màu gì?"
-        1. Phân tích: Không liên quan đến tài chính.
-        2. Trả lời JSON:
-           {{
-             "action": "unknown",
-             "reply": "Xin lỗi, tôi chỉ là trợ lý tài chính. Tôi không biết về chủ đề này."
-           }}
         ---
+        KỊCH BẢN 2: HỎI ĐÁP (Nếu không có số tiền)
+        Nhiệm vụ là nhận diện ý định và yêu cầu server truy vấn.
 
-        BÂY GIỜ, HÃY XỬ LÝ TIN NHẮN SAU:
+        Ví dụ 1: "tổng chi tháng này?"
+        =>
+        {{
+          "action": "answer_question",
+          "reply": "Bạn đợi chút, tôi đang tính tổng chi tháng này...",
+          "query_type": "total_expense_current_month",
+          "data": {{}}
+        }}
+
+        Ví dụ 2: "số dư ví tiền mặt?"
+        =>
+        {{
+          "action": "answer_question",
+          "reply": "Đang kiểm tra số dư 'Tiền mặt'...",
+          "query_type": "get_wallet_balance",
+          "data": {{"wallet_id": (id ví tiền mặt)}}
+        }}
+
+        Ví dụ 3: "tháng 10 tiêu bao nhiêu?"
+        =>
+        {{
+          "action": "answer_question",
+          "reply": "Đang kiểm tra chi tiêu tháng 10...",
+          "query_type": "total_expense_specific_month",
+          "data": {{"month": 10}}
+        }}
+
+        ---
+        KỊCH BẢN 3: KHÔNG HIỂU
+        {{
+          "action": "unknown",
+          "reply": "Xin lỗi, tôi chỉ là trợ lý tài chính. Tôi không hiểu câu hỏi này."
+        }}
+
+        ---
+        Bây giờ, xử lý tin nhắn người dùng:
         "{message}"
         """
         return prompt
 
-    # --- (Hàm phụ 2): Tạo Giao dịch từ dữ liệu AI ---
+    # ==========================================================
+    # 🧾 Hàm tạo giao dịch thực tế
+    # ==========================================================
     def create_transaction_from_ai(self, user, data):
         try:
             with transaction.atomic():
@@ -184,4 +244,3 @@ class ChatbotView(APIView):
                 wallet.save(update_fields=['balance'])
         except Exception as e:
             print(f"Lỗi khi tạo Giao dịch từ AI: {e}")
-            # (Bạn có thể ném lỗi (raise e) để gửi về cho user nếu muốn)
